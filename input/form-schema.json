@@ -8,6 +8,8 @@
     "name": {"label": "人物（真名）", "required": true, "placeholder": "如：张三"},
     "relation": {"label": "关系", "required": true, "placeholder": "如：同事-产品线总监"},
     "is_new": {"label": "是否是新人", "required": false, "default": false},
+    "gender": {"label": "性别", "required": false, "default": "unknown",
+               "options": ["unknown", "male", "female"]},
     "pseudonym": {"label": "假名（新人物时登记，展示层用）", "required": false, "placeholder": "如：老张"}
   },
   "scene": {

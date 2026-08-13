@@ -191,12 +191,14 @@ def register_summary() -> dict:
             followups += 1
         agg = by_ref.setdefault(m["ref"], {
             "ref": m["ref"], "name": rec.get("person", {}).get("name", m["ref"]),
-            "relation": "", "count": 0, "last": ""})
+            "relation": "", "count": 0, "last": "", "gender": ""})
         agg["count"] += 1
         if m["date"] > agg["last"]:
             agg["last"] = m["date"]
         if not agg["relation"]:
             agg["relation"] = rec.get("person", {}).get("relation", "")
+        if not agg["gender"]:
+            agg["gender"] = rec.get("person", {}).get("gender", "") or "unknown"
     rows = []
     for p in sorted(by_ref.values(), key=lambda x: x["ref"]):
         row = {**p, "pseudonym": pseudos.get(p["ref"], "")}

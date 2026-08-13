@@ -86,6 +86,13 @@ class RecordTab(QWidget):
         self.in_pseudo.setEnabled(False)
         self.in_ref = QLineEdit()
         self.in_ref.setPlaceholderText("留空自动推断（如 zhangsan）")
+        self.cb_gender = QComboBox()
+        _gopts = (self.schema.get("person", {}).get("gender", {}).get("options")
+                  or ["unknown", "male", "female"])
+        _glabel = {"unknown": "未知", "male": "男", "female": "女"}
+        for _k in _gopts:
+            self.cb_gender.addItem(_glabel.get(_k, _k), _k)
+        self.cb_gender.setCurrentIndex(max(self.cb_gender.findData("unknown"), 0))
 
         self.dt = QDateTimeEdit(QDateTime.currentDateTime())
         self.dt.setDisplayFormat("yyyy-MM-dd HH:mm")
@@ -113,10 +120,12 @@ class RecordTab(QWidget):
         grid.addWidget(self.in_location, 5, 1, 1, 3)
         grid.addWidget(self._lab("场景说明"), 6, 0)
         grid.addWidget(self.in_context, 6, 1, 1, 3)
-        grid.addWidget(self.cb_new, 7, 0)
-        grid.addWidget(self.in_pseudo, 7, 1, 1, 1)
-        grid.addWidget(self._lab("ref"), 7, 2)
-        grid.addWidget(self.in_ref, 7, 3)
+        grid.addWidget(self._lab("性别"), 7, 0)
+        grid.addWidget(self.cb_gender, 7, 1, 1, 3)
+        grid.addWidget(self.cb_new, 8, 0)
+        grid.addWidget(self.in_pseudo, 8, 1, 1, 1)
+        grid.addWidget(self._lab("ref"), 8, 2)
+        grid.addWidget(self.in_ref, 8, 3)
         grid.setColumnStretch(1, 3)
         grid.setColumnStretch(3, 2)
         return g
@@ -268,6 +277,7 @@ class RecordTab(QWidget):
             "created_at": now.strftime("%Y-%m-%dT%H:%M:%S") + local_offset(now),
             "person": {"name": name, "ref": ("" if is_new else ref),
                        "relation": self.in_relation.text().strip(),
+                       "gender": self.cb_gender.currentData() or "unknown",
                        "pseudonym": (pseudo if is_new and not sensitive else "")},
             "scene": {"type": self.cb_scene_type.currentText(),
                       "location": self.in_location.text().strip(),
@@ -339,6 +349,7 @@ class RecordTab(QWidget):
         self.dt.setDateTime(QDateTime.currentDateTime())
         self.cb_record.setCurrentIndex(0)
         self.cb_scene_type.setCurrentIndex(0)
+        self.cb_gender.setCurrentIndex(max(self.cb_gender.findData("unknown"), 0))
         self.in_location.clear()
         self.in_context.clear()
         for w in (self.in_situation, self.in_quote, self.in_action, self.in_result):

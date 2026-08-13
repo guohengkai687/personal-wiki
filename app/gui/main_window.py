@@ -33,6 +33,7 @@ class MainWindow(QMainWindow):
         self._build_ui(schema)
         if start_tab in self.TAB_INDEX:
             self.tabs.setCurrentIndex(self.TAB_INDEX[start_tab])
+        self.overview.refresh()
 
     def _build_ui(self, schema):
         central = QWidget()
@@ -84,6 +85,13 @@ class MainWindow(QMainWindow):
 
         self.record.on_saved = self.overview.refresh
 
+        # 打开概览页时主动刷新
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+
+    def _on_tab_changed(self, idx: int) -> None:
+        if idx == self.TAB_INDEX["overview"]:
+            self.overview.refresh()
+
     def _build_menu(self):
         m = self.menuBar()
         help_m = m.addMenu("帮助")
@@ -122,8 +130,6 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(150, self.dashboard.on_build)
             elif a == "entry":
                 self.tabs.setCurrentWidget(self.record)
-            else:
-                self.overview.refresh()
 
 
 def launch(start_tab: str = "overview", action: str | None = None,

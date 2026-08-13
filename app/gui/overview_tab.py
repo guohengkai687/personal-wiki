@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QHeaderView, QScrollArea, QTableWidg
 
 from pipeline.helpers import common, ingest
 
+from .avatars import avatar_icon
 from .style import C
 from .widgets import (SectionTitle, StatCard, TextDialog, btn, info, open_path,
                       warn)
@@ -44,12 +45,13 @@ class OverviewTab(QWidget):
         outer.addLayout(cards)
 
         # 表格
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["假名", "ref", "关系", "记忆数", "最近互动", "档案"])
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["形象", "假名", "ref", "关系", "记忆数", "最近互动", "档案"])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(40)
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Stretch)
         hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -85,6 +87,11 @@ class OverviewTab(QWidget):
         self._rows = rows
         self.table.setRowCount(len(rows))
         for r, row in enumerate(rows):
+            avatar = QTableWidgetItem()
+            avatar.setIcon(avatar_icon(row.get("gender")))
+            avatar.setTextAlignment(Qt.AlignCenter)
+            avatar.setToolTip("当前为性别占位形象；后续将按性格画像生成数字人")
+            self.table.setItem(r, 0, avatar)
             cells = [
                 row.get("pseudonym") or "—",
                 row.get("ref", ""),
@@ -97,7 +104,7 @@ class OverviewTab(QWidget):
                 item = QTableWidgetItem(str(txt))
                 if c == 3:
                     item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(r, c, item)
+                self.table.setItem(r, c + 1, item)
         self.table.resizeColumnsToContents()
 
     def _clear(self):
