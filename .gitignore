@@ -1,0 +1,15 @@
+# 生成物：看板（可随时重新生成，不入库）
+dashboard/output/
+
+# 敏感/私密记忆（永不入库）
+data/private/
+
+# 日志与临时文件
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# 编辑器
+.vscode/
+.idea/
