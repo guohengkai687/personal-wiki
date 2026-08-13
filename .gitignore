@@ -10,6 +10,10 @@ data/private/
 .DS_Store
 Thumbs.db
 
+# Python
+__pycache__/
+*.pyc
+
 # 编辑器
 .vscode/
 .idea/

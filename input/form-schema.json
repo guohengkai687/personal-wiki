@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "meta": {
+    "name": "personal-wiki 记忆录入 schema",
+    "description": "驱动 input/index.html 生成表单并进行浏览器内校验；摄入层 ingest.py 使用同一结构做二次校验。"
+  },
+  "person": {
+    "name": {"label": "人物（真名）", "required": true, "placeholder": "如：张三"},
+    "relation": {"label": "关系", "required": true, "placeholder": "如：同事-产品线总监"},
+    "is_new": {"label": "是否是新人", "required": false, "default": false},
+    "pseudonym": {"label": "假名（新人物时登记，展示层用）", "required": false, "placeholder": "如：老张"}
+  },
+  "scene": {
+    "type": {
+      "label": "场景类型",
+      "required": true,
+      "options": ["一对一会议", "多人会议", "饭局", "电话", "微信", "邮件", "公共场合", "其他"]
+    },
+    "location": {"label": "地点", "required": false, "placeholder": "如：上海-会议室A"},
+    "context": {"label": "场景说明", "required": true, "placeholder": "如：季度项目复盘会"}
+  },
+  "record_type": {
+    "label": "记录类型",
+    "required": true,
+    "options": ["对话", "事件", "评价", "承诺", "冲突", "求助", "成果"]
+  },
+  "subject": {
+    "situation": {"label": "情境 S", "required": true, "placeholder": "背景是什么？"},
+    "quote": {"label": "原话引用 Q", "required": false, "placeholder": "原话，可粘贴聊天记录"},
+    "action": {"label": "行动 A", "required": false, "placeholder": "他/她做了什么？"},
+    "result": {"label": "结果 R", "required": false, "placeholder": "最后怎么样了？"}
+  },
+  "observation": {
+    "demeanor": [
+      {"key": "direct", "label": "直接", "low": "委婉", "high": "直接"},
+      {"key": "rational", "label": "理性", "low": "感性", "high": "理性"},
+      {"key": "proactive", "label": "主动", "low": "被动", "high": "主动"}
+    ],
+    "emotion": {
+      "label": "情绪状态",
+      "options": ["calm", "positive", "tense", "excited", "frustrated", "angry"]
+    },
+    "notes": {"label": "补充观察（可选）", "required": false}
+  },
+  "evaluation": {
+    "strengths": {"label": "优点", "required": true, "placeholder": "基于观察依据"},
+    "weaknesses": {"label": "弱点", "required": false, "placeholder": "基于观察依据"},
+    "summary": {"label": "总结", "required": true, "placeholder": "一句话总结"}
+  },
+  "tags": {
+    "label": "标签",
+    "suggestions": ["技术决策", "沟通风格", "项目复盘", "情绪观察", "承诺与交付", "冲突", "求助", "成果", "团队协作", "压力应对", "领导风格", "汇报方式"],
+    "max": 8
+  },
+  "follow_up": {"label": "待跟进事项（可选）", "required": false},
+  "related_person_refs": {"label": "关联人物（ref，逗号分隔）", "required": false, "placeholder": "如：lisi, wangwu"},
+  "sensitive": {
+    "label": "敏感/私密记忆",
+    "description": "开启后该记忆仅落盘到 data/private/，永不进入 git、register、分析与看板。",
+    "default": false
+  },
+  "validation": {
+    "min_tag_length": 2,
+    "quote_or_action_required": true,
+    "ban_words": ["还行", "不错", "挺好", "一般"]
+  }
+}

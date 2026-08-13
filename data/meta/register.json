@@ -1,0 +1,23 @@
+{
+  "m": 1,
+  "total": 1,
+  "people": [
+    {
+      "ref": "zhangsan",
+      "name": "张三",
+      "memory_count": 1,
+      "last_updated": "2026-08-13"
+    }
+  ],
+  "memories": [
+    {
+      "m": "m1",
+      "id": "20260813-H1430-zhangsan",
+      "ref": "zhangsan",
+      "date": "2026-08-13",
+      "time": "14:30",
+      "record_type": "对话",
+      "sensitive": false
+    }
+  ]
+}

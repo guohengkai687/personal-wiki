@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>记忆录入 · personal-wiki</title>
+<style>
+  :root { --brand:#3b6cf6; --bg:#f5f7fb; --card:#fff; --line:#e5e9f0; --text:#1f2937; --muted:#6b7280; --danger:#dc2626; --soft:#eef3ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:14px 24px; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; z-index:10; }
+  header h1 { margin:0; font-size:18px; }
+  header .hint { font-size:12px; color:var(--muted); }
+  .wrap { max-width:900px; margin:24px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px 22px; margin-bottom:18px; }
+  .card h2 { font-size:15px; margin:0 0 14px; display:flex; align-items:center; gap:8px; }
+  .card h2 .no { background:var(--brand); color:#fff; width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:13px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .grid .full { grid-column:1 / -1; }
+  label { display:block; font-size:13px; color:#374151; margin-bottom:5px; }
+  label .req { color:var(--danger); }
+  input[type=text], input[type=datetime-local], select, textarea {
+    width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; font-size:14px; font-family:inherit; background:#fff; color:var(--text); }
+  textarea { resize:vertical; min-height:64px; }
+  .slider-row { display:flex; flex-direction:column; gap:4px; padding:6px 0; }
+  .slider-row .cap { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); }
+  .slider-row input[type=range] { width:100%; accent-color:var(--brand); }
+  .slider-row .score { font-weight:600; color:var(--brand); }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { padding:4px 12px; border:1px solid var(--line); border-radius:999px; font-size:13px; cursor:pointer; user-select:none; background:#fff; }
+  .chip.on { background:var(--soft); border-color:var(--brand); color:var(--brand); font-weight:600; }
+  .add-tag { display:flex; gap:8px; margin-top:10px; }
+  .add-tag input { flex:1; }
+  button { border-radius:8px; border:none; cursor:pointer; font-size:14px; font-family:inherit; }
+  .btn-primary { background:var(--brand); color:#fff; padding:11px 26px; font-weight:600; }
+  .btn-ghost { background:#fff; border:1px solid var(--line); padding:8px 16px; color:var(--text); }
+  .btn-danger { background:var(--danger); color:#fff; padding:8px 16px; }
+  .actions { display:flex; align-items:center; gap:14px; margin-top:4px; }
+  .hint-text { font-size:12px; color:var(--muted); }
+  #errors { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:13px; display:none; white-space:pre-line; }
+  #notice { background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:13px; display:none; }
+  .switch { display:flex; align-items:center; gap:10px; }
+  .switch input { width:18px; height:18px; accent-color:var(--danger); }
+  .result { margin-top:16px; display:none; }
+  .result pre { background:#0f172a; color:#e2e8f0; padding:14px; border-radius:8px; overflow:auto; font-size:12px; max-height:280px; }
+  footer { text-align:center; color:var(--muted); font-size:12px; padding:20px; }
+  .status-badge { font-size:12px; padding:3px 10px; border-radius:999px; }
+  .badge-off { background:#fef2f2; color:#b91c1c; }
+  .badge-on { background:#dcfce7; color:#166534; }
+</style>
+</head>
+<body>
+<header>
+  <h1>记忆录入 · personal-wiki</h1>
+  <span id="schemaBadge" class="status-badge badge-off">schema 未加载</span>
+</header>
+<div class="wrap">
+
+  <div id="notice"></div>
+  <div id="errors"></div>
+
+  <!-- ① 基础信息 -->
+  <div class="card">
+    <h2><span class="no">1</span>基础信息</h2>
+    <div class="grid">
+      <div>
+        <label>人物（真名）<span class="req">*</span></label>
+        <input type="text" id="personName" list="recentPeople" placeholder="如：张三" required>
+        <datalist id="recentPeople"></datalist>
+      </div>
+      <div>
+        <label>关系<span class="req">*</span></label>
+        <input type="text" id="personRelation" placeholder="如：同事-产品线总监" required>
+      </div>
+      <div class="switch">
+        <input type="checkbox" id="isNew">
+        <label for="isNew" style="margin:0">新建人物</label>
+        <span class="hint-text">新人时请登记假名（展示层用）</span>
+      </div>
+      <div id="pseudonymRow" style="display:none">
+        <label>假名</label>
+        <input type="text" id="pseudonym" placeholder="如：老张">
+      </div>
+      <div>
+        <label>日期时间<span class="req">*</span></label>
+        <input type="datetime-local" id="datetime" required>
+      </div>
+      <div>
+        <label>记录类型<span class="req">*</span></label>
+        <select id="recordType" required></select>
+      </div>
+      <div>
+        <label>场景类型<span class="req">*</span></label>
+        <select id="sceneType" required></select>
+      </div>
+      <div>
+        <label>地点</label>
+        <input type="text" id="sceneLocation" placeholder="如：上海-会议室A">
+      </div>
+      <div class="full">
+        <label>场景说明<span class="req">*</span></label>
+        <input type="text" id="sceneContext" placeholder="如：季度项目复盘会" required>
+      </div>
+    </div>
+  </div>
+
+  <!-- ② 事件主体 -->
+  <div class="card">
+    <h2><span class="no">2</span>事件主体（STAR）</h2>
+    <div class="grid">
+      <div class="full">
+        <label>情境 S<span class="req">*</span></label>
+        <textarea id="situation" placeholder="背景是什么？（客观描述）" required></textarea>
+      </div>
+      <div class="full">
+        <label>原话引用 Q</label>
+        <textarea id="quote" placeholder="原话，可直接粘贴聊天记录"></textarea>
+      </div>
+      <div class="full">
+        <label>行动 A</label>
+        <textarea id="action" placeholder="他/她做了什么？"></textarea>
+      </div>
+      <div class="full">
+        <label>结果 R</label>
+        <textarea id="result" placeholder="最后怎么样了？"></textarea>
+      </div>
+    </div>
+    <p class="hint-text">原话与行动至少填写其一。</p>
+  </div>
+
+  <!-- ③ 人物观察 -->
+  <div class="card">
+    <h2><span class="no">3</span>人物观察</h2>
+    <div class="grid">
+      <div id="sliders" class="full"></div>
+      <div>
+        <label>情绪状态</label>
+        <select id="emotion"></select>
+      </div>
+      <div>
+        <label>敏感/私密</label>
+        <div class="switch" style="margin-top:6px">
+          <input type="checkbox" id="sensitive">
+          <label for="sensitive" style="margin:0">私密记忆（不入库、不进看板）</label>
+        </div>
+      </div>
+      <div class="full">
+        <label>补充观察（可选）</label>
+        <textarea id="notes" placeholder="客观看到的，不带评价"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ 评价与后续 -->
+  <div class="card">
+    <h2><span class="no">4</span>评价与后续</h2>
+    <div class="grid">
+      <div class="full">
+        <label>优点<span class="req">*</span></label>
+        <textarea id="strengths" placeholder="须基于观察依据，非空洞形容词" required></textarea>
+      </div>
+      <div class="full">
+        <label>弱点</label>
+        <textarea id="weaknesses" placeholder="须基于观察依据"></textarea>
+      </div>
+      <div class="full">
+        <label>总结<span class="req">*</span></label>
+        <textarea id="summary" placeholder="一句话总结" required></textarea>
+      </div>
+      <div class="full">
+        <label>标签</label>
+        <div class="chips" id="tagChips"></div>
+        <div class="add-tag">
+          <input type="text" id="tagInput" placeholder="自定义标签后按 Enter 添加">
+          <button class="btn-ghost" id="addTagBtn" type="button">添加</button>
+        </div>
+      </div>
+      <div class="full">
+        <label>待跟进事项（可选）</label>
+        <input type="text" id="followUp" placeholder="如：周五前确认评估结论">
+      </div>
+      <div class="full">
+        <label>关联人物（ref，逗号分隔，可选）</label>
+        <input type="text" id="relatedRefs" placeholder="如：lisi, wangwu">
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn-primary" id="generateBtn" type="button">校验并生成 JSON</button>
+    <button class="btn-ghost" id="resetBtn" type="button">清空</button>
+    <span class="hint-text">生成后自动下载记忆文件；敏感记忆以 <b>-PRIVATE</b> 结尾，请勿将其提交进 git。</span>
+  </div>
+
+  <div class="result" id="resultBox">
+    <pre id="resultPre"></pre>
+  </div>
+
+  <footer>文件即数据库 · opencode 即 Agent · 静态页即看板</footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // schema 优先 fetch（http.server 场景），file:// 场景回退到内嵌副本
+  var EMBEDDED_SCHEMA = null;
+  var schema = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function loadSchema() {
+    return fetch("./form-schema.json")
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (s) { useSchema(s, true); })
+      .catch(function () {
+        useSchema(EMBEDDED_SCHEMA, false);
+        $("notice").style.display = "block";
+        $("notice").textContent = "提示：当前通过 file:// 打开，已使用内嵌 schema 副本；如需使用最新 schema，请用 python -m http.server 或 git pull 后重进。";
+      });
+  }
+
+  function useSchema(s, live) {
+    schema = s;
+    var badge = $("schemaBadge");
+    badge.textContent = live ? "schema 已实时加载" : "schema 已加载（内嵌副本）";
+    badge.className = "status-badge " + (live ? "badge-on" : "badge-off");
+    initForm(s);
+  }
+
+  function fillOptions(select, arr, withLabel) {
+    select.innerHTML = "";
+    arr.forEach(function (item) {
+      var op = document.createElement("option");
+      if (withLabel) { op.value = item.value; op.textContent = item.label; }
+      else { op.value = item; op.textContent = item; }
+      select.appendChild(op);
+    });
+  }
+
+  function initForm(s) {
+    fillOptions($("recordType"), s.record_type.options);
+    fillOptions($("sceneType"), s.scene.type.options);
+    fillOptions($("emotion"), s.observation.emotion.options, false);
+
+    // 行为标尺
+    var sliders = $("sliders");
+    sliders.innerHTML = "";
+    s.observation.demeanor.forEach(function (d) {
+      var row = document.createElement("div");
+      row.className = "slider-row";
+      row.innerHTML =
+        '<div class="cap"><span>' + d.low + '</span><span style="font-weight:600">' + d.label +
+        '</span><span class="score" id="score-' + d.key + '">3 分</span><span>' + d.high + '</span></div>' +
+        '<input type="range" min="1" max="5" step="1" value="3" data-key="' + d.key + '" data-label="' + d.label + '">';
+      sliders.appendChild(row);
+    });
+    sliders.querySelectorAll("input[type=range]").forEach(function (r) {
+      r.addEventListener("input", function () {
+        $("score-" + r.dataset.key).textContent = r.value + " 分";
+      });
+    });
+
+    // 标签 chips
+    var chipsBox = $("tagChips");
+    chipsBox.innerHTML = "";
+    var selected = [];
+    s.tags.suggestions.forEach(function (t) {
+      var c = document.createElement("span");
+      c.className = "chip";
+      c.textContent = t;
+      c.addEventListener("click", function () { toggleChip(c, t, selected, s); });
+      chipsBox.appendChild(c);
+    });
+
+    // 默认时间 = 当前
+    var now = new Date();
+    now.setSeconds(0, 0);
+    $("datetime").value = toLocalInput(now);
+
+    // 新人 → 显示假名
+    $("isNew").addEventListener("change", function () {
+      $("pseudonymRow").style.display = this.checked ? "block" : "none";
+    });
+    $("addTagBtn").addEventListener("click", addCustomTag);
+    $("tagInput").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); addCustomTag(); }
+    });
+    $("generateBtn").addEventListener("click", generate);
+    $("resetBtn").addEventListener("click", resetForm);
+    rememberRecentPeople();
+  }
+
+  var customTags = [];
+  function toggleChip(el, tag, selected, s) {
+    var idx = selected.indexOf(tag);
+    if (idx >= 0) {
+      selected.splice(idx, 1);
+      el.classList.remove("on");
+    } else {
+      if (selected.length >= s.tags.max) { alert("标签最多 " + s.tags.max + " 个"); return; }
+      selected.push(tag);
+      el.classList.add("on");
+    }
+  }
+  function addCustomTag() {
+    var v = $("tagInput").value.trim();
+    if (!v) return;
+    if (customTags.indexOf(v) >= 0) return;
+    customTags.push(v);
+    $("tagInput").value = "";
+    var c = document.createElement("span");
+    c.className = "chip on";
+    c.textContent = v;
+    c.addEventListener("click", function () { c.remove(); var i = customTags.indexOf(v); if (i >= 0) customTags.splice(i, 1); });
+    $("tagChips").appendChild(c);
+  }
+
+  function toLocalInput(d) {
+    function p(n) { return String(n).padStart(2, "0"); }
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+  function offsetString(d) {
+    var off = -d.getTimezoneOffset();
+    var sign = off >= 0 ? "+" : "-";
+    off = Math.abs(off);
+    return sign + String(Math.floor(off / 60)).padStart(2, "0") + ":" + String(off % 60).padStart(2, "0");
+  }
+
+  function rememberRecentPeople() {
+    try {
+      var list = JSON.parse(localStorage.getItem("pw-recent-people") || "[]");
+      var dl = $("recentPeople");
+      dl.innerHTML = "";
+      list.forEach(function (n) { var o = document.createElement("option"); o.value = n; dl.appendChild(o); });
+    } catch (e) { /* ignore */ }
+  }
+  function saveRecentPeople(name) {
+    try {
+      var list = JSON.parse(localStorage.getItem("pw-recent-people") || "[]");
+      list = list.filter(function (n) { return n !== name; });
+      list.unshift(name);
+      localStorage.setItem("pw-recent-people", JSON.stringify(list.slice(0, 20)));
+    } catch (e) { /* ignore */ }
+  }
+
+  function collectErrors(s) {
+    var errs = [];
+    var name = $("personName").value.trim();
+    var relation = $("personRelation").value.trim();
+    var datetime = $("datetime").value;
+    var sceneContext = $("sceneContext").value.trim();
+    var quote = $("quote").value.trim();
+    var action = $("action").value.trim();
+    var situation = $("situation").value.trim();
+    var strengths = $("strengths").value.trim();
+    var summary = $("summary").value.trim();
+
+    if (!name) errs.push("人物名必填");
+    if (!relation) errs.push("关系必填");
+    if (!datetime) errs.push("日期时间必填");
+    if (!situation) errs.push("情境 S 必填");
+    if (!sceneContext) errs.push("场景说明必填");
+    if (s.validation.quote_or_action_required && !quote && !action) {
+      errs.push("原话引用 Q 与行动 A 至少填写其一");
+    }
+    if (!strengths) errs.push("优点必填");
+    if (!summary) errs.push("总结必填");
+
+    var ban = s.validation.ban_words || [];
+    [strengths, summary].forEach(function (t) {
+      ban.forEach(function (w) {
+        if (t.indexOf(w) >= 0) errs.push("评价含空泛词「" + w + "」，请写具体依据");
+      });
+    });
+    return errs;
+  }
+
+  function generate() {
+    $("errors").style.display = "none";
+    $("resultBox").style.display = "none";
+    var errs = collectErrors(schema);
+    if (errs.length) {
+      $("errors").style.display = "block";
+      $("errors").textContent = "校验未通过：\n" + errs.map(function (e) { return "• " + e; }).join("\n");
+      return;
+    }
+
+    var name = $("personName").value.trim();
+    var dt = new Date($("datetime").value);
+    function p2(n) { return String(n).padStart(2, "0"); }
+    var ymd = dt.getFullYear() + p2(dt.getMonth() + 1) + p2(dt.getDate());
+    var hm = p2(dt.getHours()) + p2(dt.getMinutes());
+    var staple = ymd + "-H" + hm;
+
+    var tags = [];
+    $("tagChips").querySelectorAll(".chip.on").forEach(function (c) { tags.push(c.textContent); });
+    tags = tags.concat(customTags);
+
+    var related = $("relatedRefs").value.split(/[,，;]/).map(function (s) { return s.trim(); }).filter(Boolean);
+
+    var demeanor = {};
+    document.querySelectorAll("#sliders input[type=range]").forEach(function (r) {
+      demeanor[r.dataset.key] = Number(r.value);
+    });
+
+    var sensitive = $("sensitive").checked;
+    var record = {
+      "id": sensitive ? staple + "-PRIVATE" : staple,
+      "schema_version": schema.schema_version,
+      "created_at": dt.getFullYear() + "-" + p2(dt.getMonth() + 1) + "-" + p2(dt.getDate()) + "T" +
+        p2(dt.getHours()) + ":" + p2(dt.getMinutes()) + ":" + p2(dt.getSeconds()) + offsetString(dt),
+      "person": {
+        "name": name,
+        "ref": "",
+        "relation": $("personRelation").value.trim(),
+        "pseudonym": $("isNew").checked ? $("pseudonym").value.trim() || "" : ""
+      },
+      "scene": {
+        "type": $("sceneType").value,
+        "location": $("sceneLocation").value.trim(),
+        "context": $("sceneContext").value.trim()
+      },
+      "record_type": $("recordType").value,
+      "subject": {
+        "situation": $("situation").value.trim(),
+        "quote": $("quote").value.trim(),
+        "action": $("action").value.trim(),
+        "result": $("result").value.trim()
+      },
+      "observation": {
+        "demeanor": demeanor,
+        "emotion": $("emotion").value,
+        "notes": $("notes").value.trim()
+      },
+      "evaluation": {
+        "strengths": $("strengths").value.trim(),
+        "weaknesses": $("weaknesses").value.trim(),
+        "summary": $("summary").value.trim()
+      },
+      "tags": tags,
+      "follow_up": $("followUp").value.trim(),
+      "sensitive": sensitive,
+      "related_person_refs": related
+    };
+
+    saveRecentPeople(name);
+
+    var json = JSON.stringify(record, null, 2);
+    $("resultPre").textContent = json;
+    $("resultBox").style.display = "block";
+
+    // 待摄入归一化：ref 由 ingest.py 赋值后改名为 YYYYMMDD-HHmm-<ref>.json
+    var fin = (sensitive ? staple + "-PRIVATE" : staple) + ".json";
+    download(json, fin);
+  }
+
+  function download(content, filename) {
+    var blob = new Blob([content], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function resetForm() {
+    document.querySelectorAll("input[type=text], textarea, input[type=datetime-local]").forEach(function (el) {
+      if (el.type === "datetime-local") {
+        var now = new Date(); now.setSeconds(0, 0);
+        el.value = toLocalInput(now);
+      } else { el.value = ""; }
+    });
+    document.querySelectorAll("input[type=range]").forEach(function (r) { r.value = 3; $("score-" + r.dataset.key).textContent = "3 分"; });
+    $("sensitive").checked = false;
+    $("isNew").checked = false;
+    $("pseudonymRow").style.display = "none";
+    document.querySelectorAll(".chip.on").forEach(function (c) { c.classList.remove("on"); });
+    customTags = [];
+    $("resultBox").style.display = "none";
+    $("errors").style.display = "none";
+  }
+
+  loadSchema();
+})();
+</script>
+</body>
+</html>
