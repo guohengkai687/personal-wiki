@@ -14,6 +14,12 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# 打包产物（exe 可随时从 app/main.py 重新构建）
+dist/
+build/
+*.spec
+personal-wiki.exe
+
 # 编辑器
 .vscode/
 .idea/

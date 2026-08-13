@@ -3,7 +3,9 @@
 ## 这是什么
 
 `index.html` 是一个**纯前端生成器**：浏览器打开、填写、点按钮，生成并**下载**一条记忆 JSON。
-它不会写盘、不出网 —— 落盘与登记由 `pipeline/helpers/ingest.py` 完成（见项目 README「快速开始」）。
+它不会写盘、不出网 —— 落盘与登记由 `pipeline/helpers/ingest.py`（或 `personal-wiki.exe`）完成（见项目 README「快速开始」）。
+
+> 日常主入口是 `personal-wiki.exe`（交互问答录入），本表单是可选辅助方式。
 
 ## 怎么用
 

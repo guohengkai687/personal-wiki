@@ -21,17 +21,16 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "data"
-MEMORIES = DATA / "memories"
-PEOPLE = DATA / "people"
-META = DATA / "meta"
-ALIASES = DATA / "aliases.md"
-REGISTER = META / "register.json"
-PSEUDONYMS = META / "pseudonyms.md"
-TEMPLATES = ROOT / "dashboard" / "templates"
-ASSETS = ROOT / "dashboard" / "assets"
-OUTPUT = ROOT / "dashboard" / "output"
+if __package__:
+    from .common import (ALIASES, ASSETS, MEMORIES, OUTPUT, PEOPLE,
+                         PSEUDONYMS, REGISTER, TEMPLATES, load_json,
+                         parse_aliases, parse_pseudonyms, read,
+                         setup_stdout_utf8)
+else:
+    from common import (ALIASES, ASSETS, MEMORIES, OUTPUT, PEOPLE,
+                        PSEUDONYMS, REGISTER, TEMPLATES, load_json,
+                        parse_aliases, parse_pseudonyms, read,
+                        setup_stdout_utf8)
 
 EMOTION = {
     "color": {"calm": "#94a3b8", "positive": "#22c55e", "tense": "#f59e0b",
@@ -40,35 +39,6 @@ EMOTION = {
                   "frustrated": 1.5, "angry": 1.0},
 }
 BIG5_LABELS = ["开放性", "尽责性", "外向性", "宜人性", "神经质"]
-
-
-def load(path: Path) -> dict:
-    with path.open(encoding="utf-8") as f:
-        return json.load(f)
-
-
-def read(path: Path) -> str:
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
-
-
-def parse_aliases(path: Path) -> dict[str, str]:
-    mapping = {}
-    for line in read(path).splitlines():
-        m = re.match(r"^\s*(.+?)\s*(?:\(.*\))?\s*→\s*([a-zA-Z0-9_-]+)\s*$", line)
-        if m:
-            mapping[m.group(1).strip()] = m.group(2).strip()
-    return mapping
-
-
-def parse_pseudonyms(path: Path) -> dict[str, str]:
-    mapping = {}
-    for line in read(path).splitlines():
-        m = re.match(r"^\s*([a-zA-Z0-9_-]+)\s*→\s*(.+?)\s*$", line)
-        if m:
-            mapping[m.group(1).strip()] = m.group(2).strip()
-    return mapping
 
 
 def esc(s: str) -> str:
@@ -253,18 +223,13 @@ def emotion_of(rec: dict) -> str:
 
 
 def main() -> int:
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+    setup_stdout_utf8()
 
     if not REGISTER.exists():
         print("register.json 不存在，请先运行 python pipeline/helpers/ingest.py --reindex")
         return 2
 
-    with REGISTER.open(encoding="utf-8") as f:
-        register = json.load(f)
+    register = load_json(REGISTER)
 
     pseudos = parse_pseudonyms(PSEUDONYMS)
     aliases = parse_aliases(ALIASES)
@@ -276,7 +241,7 @@ def main() -> int:
         paths = list((MEMORIES / ym).glob(m["id"] + ".json"))
         if not paths:
             continue
-        rec = load(paths[0])
+        rec = load_json(paths[0])
         rec["_m"] = m["m"]
         rec["ref"] = rec["person"]["ref"]
         raw_memories.append(rec)

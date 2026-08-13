@@ -11,11 +11,11 @@ pipeline/helpers/ingest.py —— personal-wiki 摄入脚本
   5. 输出 mem: 提交信息建议（不自动 commit）。
 
 用法：
-  python src ingest.py <memory.json> [<memory2.json> ...]
-  python src ingest.py --ref zhangsan <memory.json>
-  python src ingest.py --add-alias <memory.json>     # 新人物时同时写入 aliases.md
-  python src ingest.py --reindex                      # 仅根据 memories/ 重算 register.json
-  python src ingest.py --validate <memory.json>       # 只校验不落盘
+  python pipeline/helpers/ingest.py <memory.json> [<memory2.json> ...]
+  python pipeline/helpers/ingest.py --ref zhangsan <memory.json>
+  python pipeline/helpers/ingest.py --add-alias <memory.json>     # 新人物时同时写入 aliases.md
+  python pipeline/helpers/ingest.py --reindex                      # 仅根据 memories/ 重算 register.json
+  python pipeline/helpers/ingest.py --validate <memory.json>       # 只校验不落盘
 """
 from __future__ import annotations
 
@@ -23,74 +23,21 @@ import argparse
 import datetime as dt
 import json
 import re
-import shutil
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "data"
-MEMORIES = DATA / "memories"
-PRIVATE = DATA / "private"
-META = DATA / "meta"
-ALIASES = DATA / "aliases.md"
-PSEUDONYMS = META / "pseudonyms.md"
-REGISTER = META / "register.json"
-SCHEMA = ROOT / "input" / "form-schema.json"
+if __package__:
+    from .common import (ALIASES, MEMORIES, PRIVATE, PSEUDONYMS, REGISTER,
+                         ROOT, SCHEMA, append_line, infer_ref, load_json,
+                         parse_aliases, parse_pseudonyms, setup_stdout_utf8,
+                         write_json_smart)
+else:
+    from common import (ALIASES, MEMORIES, PRIVATE, PSEUDONYMS, REGISTER,
+                        ROOT, SCHEMA, append_line, infer_ref, load_json,
+                        parse_aliases, parse_pseudonyms, setup_stdout_utf8,
+                        write_json_smart)
 
 EMOTIONS = {"calm", "positive", "tense", "excited", "frustrated", "angry"}
-
-
-# ---------------------------------------------------------------- 工具
-def load_json(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def write_json_smart(path: Path, obj: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
-    shutil.move(str(tmp), str(path))
-
-
-def parse_aliases(path: Path) -> dict[str, str]:
-    """aliases.md 行格式：`名字 → ref   (关系: ...)` → {名字: ref}"""
-    mapping: dict[str, str] = {}
-    if not path.exists():
-        return mapping
-    for line in path.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"^\s*(.+?)\s*(?:\(.*\))?\s*→\s*([a-zA-Z0-9_-]+)\s*$", line)
-        if m:
-            mapping[m.group(1).strip()] = m.group(2).strip()
-    return mapping
-
-
-def parse_pseudonyms(path: Path) -> dict[str, str]:
-    mapping: dict[str, str] = {}
-    if not path.exists():
-        return mapping
-    for line in path.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"^\s*([a-zA-Z0-9_-]+)\s*→\s*(.+?)\s*$", line)
-        if m:
-            mapping[m.group(1).strip()] = m.group(2).strip()
-    return mapping
-
-
-def pinyin_ref(name: str) -> str | None:
-    """尽力推断拼音 ref（依赖 pypinyin，缺失时返回 None）"""
-    try:
-        from pypinyin import lazy_pinyin  # type: ignore
-        return "".join(lazy_pinyin(name)).lower().strip().replace(" ", "")
-    except Exception:
-        return None
-
-
-def infer_ref(name: str) -> str | None:
-    """按优先级推断 ref：别名表内 / ASCII 小写 / pypinyin / 回退占位"""
-    ready = re.sub(r"\s+", "", name.strip())
-    if re.fullmatch(r"[A-Za-z0-9_-]+", ready):
-        return ready.lower()
-    return pinyin_ref(ready)
 
 
 # ---------------------------------------------------------------- 校验
@@ -278,11 +225,6 @@ def ingest(rec: dict, ref_override: str | None, add_alias: bool, overwrite: bool
     print_suggest(target, rec)
 
 
-def append_line(path: Path, text: str) -> None:
-    with path.open("a", encoding="utf-8") as f:
-        f.write("\n" + text if path.stat().st_size > 0 else text)
-
-
 def print_suggest(target: Path, rec: dict) -> None:
     if rec["sensitive"]:
         print("\n[私密记忆] 已落盘 data/private/（gitignore），不进 git、register、分析与看板，无需提交。")
@@ -301,11 +243,7 @@ def print_suggest(target: Path, rec: dict) -> None:
 
 # ---------------------------------------------------------------- 入口
 def main() -> int:
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
+    setup_stdout_utf8()
     ap = argparse.ArgumentParser(description="personal-wiki 摄入脚本")
     ap.add_argument("files", nargs="*", help="待摄入的记忆 JSON")
     ap.add_argument("--ref", help="人名归一化 ref（新人物时）")

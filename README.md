@@ -3,7 +3,7 @@
 个人人际关系记忆与人格分析系统 —— 以「文件即数据库、opencode 即 Agent、静态页即看板」为原则的极简落地项目。
 
 - 设计文档：见 [DESIGN.md](DESIGN.md)
-- 当前阶段：**P0 骨架**（录入表单 + 摄入脚本 + 数据骨架已可用）
+- 当前阶段：**P0 骨架**（控制台 exe + 摄入/看板脚本 + 数据骨架已可用）
 
 ## 目录结构
 
@@ -14,43 +14,58 @@ data/            ★ 数据唯一事实源（入库）
   memories/        原始记忆 JSON（摄入层落盘）
   private/         私密记忆（gitignore，永不入库）
   meta/            register.json（生成物）、pseudonyms.md（展示脱敏）
-input/           录入表单（纯前端生成器，不写盘）
+app/              控制台应用源码 → 打包 personal-wiki.exe（日常主入口）
+input/            HTML 录入表单（可选辅助，纯前端生成器，不写盘）
   index.html       浏览器打开 → 填写 → 下载记忆 JSON
   form-schema.json 字段 schema（驱动表单与校验）
 pipeline/        Agent 工作区 + 脚本
-  helpers/ingest.py  摄入：校验 → 归一化 → 落盘 → 重算 register
+  helpers/          common.py（路径/别名/编码）ingest.py（摄入）build.py（看板）
 dashboard/       展示层（P2 进行中）
 docs/            使用手册（P4）、分析维度说明（P1）
 ```
 
-## 快速开始（P0）
+## 快速开始
 
 ### 1. 环境
-- Python 3（建议 ≥3.9）+ Jinja2：`pip install jinja2`
-- 可选 pypinyin（人名自动转拼音 ref，装不装都能用）：`pip install pypinyin`
+- Windows：直接用 `personal-wiki.exe`（源码位于 `app/main.py`，可自行重新打包）
+- 源码方式：Python 3（建议 ≥3.9）+ Jinja2：`pip install jinja2`；可选 pypinyin（`pip install pypinyin`）
 - ECharts 已 vendor 到 `dashboard/assets/echarts.min.js`（本地离线可用）
 
-### 2. 录入一条记忆
-1. 浏览器打开 `input/index.html`（双击即可，无服务器）；
-2. 按四区块填写：基础信息 / 事件主体(STAR) / 人物观察 / 评价与后续；
-3. 点「校验并生成 JSON」→ 浏览器自动下载 `.json` 文件；
-4. 摄入：
+### 2. 日常录入（exe 主入口）
+双击（或命令行）运行 `personal-wiki.exe`，菜单交互：
+
+```
+1 录入新记忆    2 人物/记忆概览   3 重算索引
+4 生成看板      5 生成分析提示    q 退出
+```
+
+- 录入 → 校验 → 落盘 → 重算 register → 可确认后自动 git 提交（提交信息只用 ref）；
+- 命令行：`personal-wiki.exe --people`（概览）/ `--reindex` / `--build` / `--entry`；
+- 若 exe 不在仓库根目录：加 `--pw-root <仓库路径>` 或环境变量 `PW_ROOT` 指定数据根。
+
+### 3. 可选：HTML 表单录入
+浏览器打开 `input/index.html` → 填写 → 下载 `.json`，然后交给 exe/脚本摄入：
    ```
    python pipeline/helpers/ingest.py <下载的.json>
    # 新人物需指定 ref：
    python pipeline/helpers/ingest.py --ref wangwu --add-alias <下载的.json>
    ```
-5. 按脚本给出的「提交建议」人工确认后提交 git（脚本不自动 commit）。
 
-> 私密记忆：表单里勾选「敏感/私密」，落盘 `data/private/`，**永不进 git、register、分析与看板**。
+> 私密记忆：录入时选择「私密」，落盘 `data/private/`，**永不进 git、register、分析与看板**。
 
-### 3. 维护命令
+### 4. 源码维护命令
 ```
 python pipeline/helpers/ingest.py --reindex        # 重算 register.json（改档案后调用）
 python pipeline/helpers/ingest.py --validate <f>   # 只校验不落盘
+python pipeline/helpers/build.py                   # 生成看板
 ```
 
-## 提交约定
+### 5. 重新打包 exe
+```
+pip install pyinstaller
+pyinstaller --onefile --console --name personal-wiki --paths . app/main.py
+copy dist\personal-wiki.exe .     # 放到仓库根目录即可使用
+```
 
 | 前缀 | 场景 | 示例 |
 |---|---|---|
@@ -68,7 +83,7 @@ python pipeline/helpers/ingest.py --validate <f>   # 只校验不落盘
 
 ## 路线图
 
-- [x] P0 骨架：README / DESIGN / .gitignore / 目录 / 表单 + schema / ingest.py / 示例记忆
+- [x] P0 骨架：README / DESIGN / .gitignore / 目录 / app（exe 主入口）/ ingest+build / 示例记忆
 - [ ] P1 Agent 分析：analyze.md 定稿，产出首份人物档案
 - [ ] P2 看板：templates + build.py，列表页 + 详情页
 - [ ] P3 打磨：搜索/筛选/雷达交互/明暗主题/回顾机制

@@ -21,9 +21,11 @@
 ### 1.3 角色分工
 | 层 | 承担者 | 职责 |
 |---|---|---|
-| 输入层 | 用户本人 + HTML 表单 | 规范化录入，生成记忆 JSON 文件 |
+| 输入层 | 用户本人 + 控制台 exe（`personal-wiki.exe`） | 交互问答录入、校验、落盘、重算索引、生成看板，输入输出全部在 exe 内完成 |
 | Agent 层 | opencode | 读记忆文件，产出人物档案与分析结论 |
 | 展示层 | 生成式静态看板 | 数据可视化，浏览人物画像 |
+
+> HTML 表单（`input/index.html`）保留为可选辅助录入方式，主入口为 exe。
 
 ---
 
@@ -31,11 +33,11 @@
 
 ```
 ┌─────────────┐      ┌────────────────────┐
-│  输入层       │      │  摄入层 ingest       │
-│  录入表单      │─────▶│  校验 / 决定落盘位置  │
-│  → 生成JSON    │  下载 │  更新 register      │
-│  （浏览器，不写盘）│      │  (pipeline/ingest.py │
-└─────────────┘      │   或 opencode 执行)   │
+│  输入层       │      │  摄入/数据层         │
+│  控制台 exe   │─────▶│  校验 → 落盘        │
+│  交互问答录入  │      │  归一化 → 重算 register│
+│  (app/main.py)│      │  (app 内联调用       │
+└─────────────┘      │   ingest.py 逻辑)    │
                     └─────────┬────────────┘
                               ▼
 ┌─────────────┐      ┌──────────────────┐
@@ -46,14 +48,14 @@
        │
        ▼
 ┌─────────────┐
-│ 展示层       │  build 生成静态看板
+│ 展示层       │  exe 内 build 生成静态看板
 │ 静态 HTML     │  （双击可开，离线可用）
 └─────────────┘
 ```
 
 **关键约束：**
 - 数据永远以 `data/` 下的文本文件为唯一事实源（single source of truth）；
-- **浏览器不写盘、不出网**：表单只负责"生成 + 下载"记忆 JSON，一切落盘、校验、索引更新由 `pipeline/ingest.py`（或交给 opencode 执行）完成（见 5.5）；
+- **exe 是日常入口**：录入、校验、落盘、重算 register、生成看板都在 `personal-wiki.exe` 内完成，数据记录逻辑与 `pipeline/helpers/ingest.py` / `build.py` 完全一致（复用同一模块）；
 - Agent 只读文件、只写文件，不维护任何内存态；
 - `register.json` 是**生成物**，由 ingest/build 脚本从记忆目录重算，永不手工编辑；
 - 看板是"生成物"，随时可由 `data/` 重新生成，永不手工编辑。
@@ -81,10 +83,13 @@ personal-wiki/
 │       ├── register.json           # 记忆登记索引（生成物，见 4.4）
 │       └── pseudonyms.md           # 假名映射表（仅展示层使用）
 │
-├── input/                          # 输入层（仅生成器，不写盘）
+├── input/                          # 输入层辅助（可选，浏览器生成器，不写盘）
 │   ├── index.html                  # 专业录入表单（浏览器打开 → 生成并下载 JSON）
-│   ├── form-schema.json            # 表单字段的 schema（校验/生成用）
+│   ├── form-schema.json            # 表单字段的 schema（校验/生成用，exe 也读它）
 │   └── README.md                   # 录入使用说明
+│
+├── app/                            # 控制台应用源码（主入口）
+│   └── main.py                     # 打包为 personal-wiki.exe（录入/概览/重算/看板/分析提示）
 │
 ├── dashboard/                      # 展示层源码与生成物
 │   ├── templates/                  # 页面模板
@@ -97,12 +102,13 @@ personal-wiki/
 │   └── output/                     # ★ 生成出的看板（gitignore）
 │       └── index.html
 │
-├── pipeline/                       # Agent 工作区 + 摄入脚本
+├── pipeline/                       # Agent 工作区 + 摄入/构建脚本
 │   ├── analyze.md                  # 人物分析指令模板（opencode 任务书）
 │   ├── review.md                   # 定期回顾指令模板
 │   └── helpers/
-│       ├── ingest.py               # 摄入脚本：校验 → 落盘 → 重算 register.json（见 5.5）
-│       └── build.py                # 看板构建脚本（读 data → 生成 output）
+│       ├── common.py               # 数据层共享：路径解析/别名/假名/编码（exe 与脚本共用）
+│       ├── ingest.py               # 摄入逻辑：校验 → 落盘 → 重算 register.json
+│       └── build.py                # 看板构建逻辑（读 data → 生成 output）
 │
 └── docs/
     ├── 使用手册.md
@@ -242,40 +248,53 @@ lisi     → 李工
 
 ## 5. 输入层设计（规范化、专业化录入）
 
-### 5.1 表单（input/index.html）
+### 5.1 主入口：控制台 exe（app/main.py → personal-wiki.exe）
 
-单页表单，纯 HTML + JS + 本地存储，浏览器双击即用，无服务器。分四区块：
+双击或在命令行使 `personal-wiki.exe`，进入菜单，输入输出都在 exe 内完成：
+
+| 菜单 | 说明 |
+|---|---|
+| 1 录入新记忆 | 交互问答（与下方四区块同字段）→ 校验 → 落盘 → 重算 register → 可选 git 提交 |
+| 2 人物/记忆概览 | 从 register 列出所有人物的记忆数与最近互动 |
+| 3 重算索引 register | 等价 `ingest.py --reindex` |
+| 4 生成看板 | 等价 `build.py`，产出 dashboard/output/，可一键打开 |
+| 5 生成分析提示 | 打印"分析 <ref>"指令，交由 opencode 执行（任务书 analyze.md） |
+
+- 命令行亦可直接调用：`personal-wiki.exe --people / --reindex / --build / --entry`；
+- 数据根目录定位：exe 所在目录为仓库根；也可 `--pw-root <路径>` 或环境变量 `PW_ROOT` 指定；
+- 新人物录入时引导登记 ref 与展示用假名；私密记忆（sensitive=true）直接落 `data/private/`（见 5.5）。
+
+### 5.2 字段（exe 问答 与 HTML 表单同构）
 
 | 区块 | 字段 | 说明 |
 |---|---|---|
-| **① 基础信息** | 人物（手动输入，localStorage 记忆最近人名便于复用）；**假名**（新建人物时登记，展示层用）；日期时间；场景类型（枚举下拉）；场景说明；记录类型 | 人物不读取本地文件（浏览器无写盘/读盘能力）；新名字的归一化由摄入层 / Agent 判断（见 5.5） |
-| **② 事件主体** | 情境 S / 原话引用 Q / 行动 A / 结果 R | STAR 结构，客观还原，原话支持粘贴聊天记录 |
-| **③ 人物观察** | 行为标尺（直接-委婉、理性-感性、主动-被动等 1-5 分）；情绪状态（单选）；补充观察 | 客观维度强制打分，主观notes可选 |
-| **④ 评价与后续** | 优点 / 弱点 / 总结（三段式）；益处与风险；标签（已有标签选择+新增）；待跟进事项；敏感度开关 | 评价必须写"依据"，即指出是观察还是推断 |
+| **① 基础信息** | 人物（真名）；新人时登记 **ref/假名**；关系；日期时间；场景类型（枚举）；场景说明；记录类型 | exe 内查 aliases.md 自动识别新旧人物并归一化 |
+| **② 事件主体** | 情境 S / 原话引用 Q / 行动 A / 结果 R | STAR 结构，客观还原；原话支持粘贴 |
+| **③ 人物观察** | 行为标尺（直接-委婉、理性-感性、主动-被动，1-5 分）；情绪状态（单选）；补充观察 | 客观维度强制打分，主观notes可选 |
+| **④ 评价与后续** | 优点 / 弱点 / 总结（三段式）；标签；待跟进事项；敏感度开关 | 评价必须写"依据"，即指出是观察还是推断 |
 
-### 5.2 校验规则（form-schema.json 驱动）
+### 5.3 校验规则（form-schema.json 驱动，exe 与 ingest 共用）
 - 必填：人物、时间、场景、行动/原话（至少其一）、总结
 - 原话与行动禁止空白，评价不得为空泛形容词（检测长度与关键词）
-- 标签去重、归一化（同义词合并——表单内做轻量合并，跨人名/全量归一化由摄入层校验）
-- 敏感度（sensitive = true）开关：置为私密的记忆，摄入层落盘到 `data/private/` 且被 gitignore
-
-### 5.3 录入产物（表单 = 生成器，不写盘）
-提交后表单**在浏览器内完成 schema 校验并生成记忆 JSON 文件，通过浏览器"下载"保存**：
-- `sensitive=false` → 建议按 4.1 规范命名 `YYYYMMDD-HHmm-<ref>.json`，下载到本地待摄入；
-- `sensitive=true` → 文件名加 `-PRIVATE` 后缀（如 `20260813-H1430-zhangsan-PRIVATE.json`），永远不得进入 git。
+- 标签去重、归一化
+- 敏感度（sensitive = true）开关：落盘到 `data/private/` 且被 gitignore，永不入库
 
 ### 5.4 录入门槛（专业性的保证）
 > 宁可少录，不可错录。所有主观评价必须绑定"我的观察依据"或显式声明为"我的推断"，禁止把猜测写成事实。
 
-### 5.5 摄入流程（ingest.py / opencode 执行）
-把下载的记忆 JSON 交给 `python pipeline/helpers/ingest.py <file>`（或作为交付物丢给 opencode），流程为：
-1. **校验**：按 4.1 schema 重新校验，指出必填/格式问题；
-2. **人名归一化**：查 `aliases.md`，已有 ref 则归并；新名字由 Agent 判断并入或新建条目；
-3. **落盘**：`sensitive=true` → `data/private/YYYY/MM/`（不更新 register）；否则 → `data/memories/YYYY/MM/`；
-4. **重算 register.json**：由脚本增量重算（新记忆分配 m 序号，见 4.4），不手工改；
-5. **输出提交提示**：生成 `mem:` 提交信息建议，等待用户确认后执行 git commit。
+### 5.5 摄入流程（exe 内联 ingest.py 逻辑，亦可单独用脚本）
+流程为：
+1. **校验**：按 4.1 schema 校验，指出必填/格式问题；
+2. **人名归一化**：查 `aliases.md`，已有 ref 则归并；新名字由 exe 引导（建议 ref）、或交给 Agent（opencode 判断）；
+3. **落盘**：`sensitive=true` → `data/private/YYYY/MM/`（不更新 register，不写 aliases/假名表）；否则 → `data/memories/YYYY/MM/`；
+4. **重算 register.json**：脚本重算（新记忆分配 m 序号，见 4.4），不手工改；
+5. **提交**：默认给出 `mem:` 提交建议；exe 内可确认后自动 git add+commit（提交信息只用 ref，见 8.3）。
 
-> 注：`ingest.py` 与用户之间也可由 opencode 充当"对话式接收器"——用户直接粘贴表单下载的 JSON，opencode 执行上述 1-5 步。
+> 注：脚本方式 `python pipeline/helpers/ingest.py <file>`（可与 opencode 协作）与 exe 数据逻辑完全一致。
+
+### 5.6 可选辅助：HTML 表单（input/index.html）
+保留为离线补充录入方式：浏览器打开 → 校验 → **下载**记忆 JSON（不写盘）→ 交给 exe/ingest/opencode 摄入。<br>
+`file://` 下使用内嵌 schema 副本；`python -m http.server` 可加载实时 schema。
 
 ---
 
@@ -283,7 +302,7 @@ lisi     → 李工
 
 ### 6.1 触发方式
 4 种，全部由用户在 opencode 对话中发起：
-- `录入 ...`：接收用户粘贴/指名的下载记忆 JSON，执行 5.5 摄入流程；
+- `录入 ...`：接收用户粘贴/指名的记忆 JSON，执行 5.5 摄入流程（日常一般由 exe 完成录入，opencode 作为可选接收器）；
 - `分析张三`：对单个人物运行完整分析；
 - `分析全部`：遍历所有有新增记忆的人物并序贯分析；
 - `回顾`：对某个历史结论做定期复核（review.md）。
@@ -374,12 +393,12 @@ Thumbs.db
 >
 > 若将来确有外发/半公开需求，采用「仓库外 data/ 真名 + 仓库内假名副本」方案（真名目录整体 gitignore，仓库内另存一份假名记忆供展示），见 P3 打磨项。
 
-### 8.3 提交约定（由 opencode 在用户确认后执行）
+### 8.3 提交约定（exe / opencode 生成建议，用户确认后执行）
 | 前缀 | 场景 | 示例 |
 |---|---|---|
 | `docs:` | 改设计/文档 | `docs: 输入表单字段表更新` |
 | `mem:` | 新增/修正记忆 | `mem: 录入 zhangsan 20260813 复盘记录` |
-| `analysis:` | 档案/分析更新 | `analysis: 张三 画像更新（证据 m1,m4）` |
+| `analysis:` | 档案/分析更新 | `analysis: zhangsan 画像更新（证据 m1,m4）` |
 | `feat:` | 表单/看板/构建脚本改动 | `feat: 详情页新增情绪时间线` |
 
 - 每次录入后一个 `mem:` 提交；每次分析后一个 `analysis:` 提交；
@@ -396,7 +415,7 @@ Thumbs.db
 
 | 阶段 | 内容 | 可验收成果 |
 |---|---|---|
-| P0 骨架（本次） | git init、README、DESIGN、.gitignore、目录创建、表单 + schema + **ingest.py + 环境初始化（Python/Jinja2、ECharts vendor）**、1 条示例记忆 | `git log` 有初始提交；表单可生成并下载 JSON，`ingest.py` 可摄入示例 |
+| P0 骨架（本次） | git init、README、DESIGN、.gitignore、目录创建、表单 + schema + common/ingest/build + **控制台应用 app/main.py → personal-wiki.exe** + 环境初始化（Python/Jinja2、ECharts vendor）、1 条示例记忆 | `git log` 有初始提交；exe 可录入/概览/重算/生成看板，数据逻辑与脚本一致 |
 | P1 Agent 分析 | analyze.md 定稿；跑通"分析张三"，产出首份档案 | `people/zhangsan.md` 含画像+策略+证据引用（m 序号） |
 | P2 看板 | templates + build.py，列表页 + 详情页跑通 | 双击打开 dashboard/output/index.html |
 | P3 打磨 | 搜索/筛选/雷达交互/明暗主题/回顾机制 + review.md；**外发版「仓库外真名 + 仓库内假名副本」方案（可选）** | 体验层可日常使用；如启用，假名副本可安全外发 |
