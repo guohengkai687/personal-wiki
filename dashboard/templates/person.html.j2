@@ -1,0 +1,51 @@
+{% macro person(p) -%}
+<div class="person-detail" id="pd-{{ p.ref }}" data-ref="{{ p.ref }}" hidden>
+  <button class="back-btn" type="button">← 返回列表</button>
+  <div class="detail-head">
+    <div class="avatar avatar-lg" style="background:{{ p.emotion_color }}">{{ p.initial }}</div>
+    <div>
+      <h2>{{ p.pseudo }}{% if p.unmasked %}<span class="unmasked badge">未脱敏</span>{% endif %}</h2>
+      <div class="relation">{{ p.relation }}</div>
+      <div class="meta">记忆 {{ p.memory_count }} 条 · 首次 {{ p.first }} · 最近 {{ p.last }}</div>
+      <div class="tags">
+        {%- for t in p.tags -%}<span class="chip">{{ t }}</span>{%- endfor -%}
+      </div>
+    </div>
+  </div>
+  <div class="detail-layout">
+    <div class="detail-left">
+      {{ p.profile_html | safe }}
+    </div>
+    <div class="detail-right">
+      {% if p.big5 %}
+      <div class="panel">
+        <h4>大五人格雷达</h4>
+        <div class="chart" id="radar-{{ p.ref }}"></div>
+      </div>
+      {% endif %}
+      <div class="panel">
+        <h4>情绪轨迹</h4>
+        <div class="chart" id="line-{{ p.ref }}"></div>
+      </div>
+      <div class="panel">
+        <h4>记忆时间线</h4>
+        <div class="mem-list">
+          {%- for m in p.memories -%}
+          <details class="mem-item">
+            <summary>
+              [{{ m.m }}] {{ m.date }} {{ m.time }} · {{ m.record_type }}
+              {%- if m.unmasked -%}<span class="unmasked badge">未脱敏</span>{%- endif -%}
+            </summary>
+            <p><b>情境</b>：{{ m.situation }}</p>
+            {% if m.quote %}<p><b>原话</b>：{{ m.quote }}</p>{% endif %}
+            {% if m.action %}<p><b>行动</b>：{{ m.action }}</p>{% endif %}
+            {% if m.result %}<p><b>结果</b>：{{ m.result }}</p>{% endif %}
+            {% if m.context %}<p class="dim">{{ m.context }}</p>{% endif %}
+          </details>
+          {%- endfor -%}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{%- endmacro %}

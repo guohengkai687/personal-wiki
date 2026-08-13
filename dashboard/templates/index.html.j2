@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>personal-wiki · 人际看板</title>
+<link rel="stylesheet" href="assets/base.css">
+<script id="pw-data" type="application/json">{{ payload }}</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand" onclick="location.hash=''">personal-wiki<span class="tag">看板</span></div>
+  <button class="btn-ghost" id="themeBtn" type="button">暗色</button>
+</header>
+
+<main>
+  <section class="kpis">
+    <div class="kpi"><b>{{ kpis.people_total }}</b><span>人物</span></div>
+    <div class="kpi"><b>{{ kpis.memories_total }}</b><span>记忆总数</span></div>
+    <div class="kpi"><b>{{ kpis.month_new }}</b><span>本月新增</span></div>
+    <div class="kpi"><b>{{ kpis.followups }}</b><span>待跟进</span></div>
+    <div class="kpi"><b>{{ timeline|length }}+</b><span>最近动态</span></div>
+  </section>
+
+  <!-- 列表视图 -->
+  <section id="view-list">
+    <div class="toolbar">
+      <input id="search" type="text" placeholder="搜索人物 / 关系 / 标签…">
+      <select id="sort">
+        <option value="last">按最近互动</option>
+        <option value="count">按记忆数</option>
+        <option value="name">按姓名</option>
+      </select>
+      <select id="relFilter"><option value="">全部关系</option></select>
+    </div>
+    <div class="cards" id="cards">
+      {%- for p in people -%}
+      <a class="card" href="#/p/{{ p.ref }}" data-ref="{{ p.ref }}"
+         data-relation="{{ p.relation }}" data-last="{{ p.last }}" data-count="{{ p.memory_count }}"
+         data-tags="{{ p.tags|join(',') }}" data-name="{{ p.pseudo }}">
+        <div class="card-top">
+          <div class="avatar" style="background:{{ p.emotion_color }}">{{ p.initial }}</div>
+          <div class="card-title">
+            <div class="cname">{{ p.pseudo }}{% if p.unmasked %}<span class="unmasked badge">未脱敏</span>{% endif %}</div>
+            <div class="cRel">{{ p.relation or p.ref }}</div>
+          </div>
+          <div class="emotion-dot" style="background:{{ p.emotion_color }}" title="情绪 {{ p.emotion }}"></div>
+        </div>
+        {% if p.big5 %}
+        <div class="mini-radar" data-big5="{{ p.big5.values()|join(',') }}"></div>
+        {% endif %}
+        <div class="tags">
+          {%- for t in p.tags[:3] -%}<span class="chip">{{ t }}</span>{%- endfor -%}
+        </div>
+        <div class="card-foot">
+          <span>{{ p.last }}</span>
+          <span>{{ p.memory_count }} 条</span>
+        </div>
+      </a>
+      {%- endfor -%}
+    </div>
+
+    <div class="timeline panel">
+      <h3>最近动态</h3>
+      {% if timeline %}
+      <ul>
+        {%- for t in timeline -%}
+        <li><a href="#/p/{{ t.ref }}"><b>{{ t.person }}</b></a>
+          <span class="dim">{{ t.date }} · {{ t.record_type }}</span>
+          <div class="dim">{{ t.context or t.situation }}</div></li>
+        {%- endfor -%}
+      </ul>
+      {% else %}
+      <p class="dim">暂无记忆</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <!-- 详情视图 -->
+  <section id="view-detail" hidden>
+    {% import 'person.html.j2' as pt %}
+    {%- for p in people -%}{{ pt.person(p) }}{%- endfor -%}
+    {% if not people %}<p class="dim center">暂无人物</p>{% endif %}
+  </section>
+</main>
+
+<footer class="foot">* 展示内容为假名，真名仅存于 data/ 目录 *</footer>
+
+<script src="assets/echarts.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
