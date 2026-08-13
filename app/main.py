@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-app/main.py —— personal-wiki 控制台应用（可打包为 personal-wiki.exe）
+app/main.py —— personal-wiki 应用入口（打包为 personal-wiki.exe）
 
-输入输出都在本程序内完成；数据记录逻辑复用 pipeline/helpers（ingest/build）：
-  - 录入新记忆：交互问答 → 校验 → 落盘到 data/（私密进 data/private/）→ 重算 register → 可选 git 提交
-  - 人物/记忆概览、重算索引、生成看板、生成分析提示（交给 opencode）
-
-用法：
-  personal-wiki.exe           交互菜单
-  personal-wiki.exe --people   列出人物概览
-  personal-wiki.exe --reindex  重算 register.json
-  personal-wiki.exe --build    生成看板
-  personal-wiki.exe --pw-root D:\\path   指定仓库/数据根目录
+默认启动 PySide6 桌面界面（app/gui/）；在源码命令行下带参数时执行传统 CLI：
+  - --people / --reindex / --build / --entry / --menu（交互菜单）
+  - --pw-root <路径>：指定仓库/数据根目录（等价环境变量 PW_ROOT）
+exe 内带以上参数时仍启动界面，并自动定位到对应页 / 执行动作。
 """
 from __future__ import annotations
 
@@ -22,7 +16,10 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+
+from pipeline.helpers import build, common, ingest
+
+EMOTIONS = ["calm", "positive", "tense", "excited", "frustrated", "angry"]
 
 
 def bootstrap() -> None:
@@ -30,32 +27,21 @@ def bootstrap() -> None:
         i = sys.argv.index("--pw-root")
         if i + 1 < len(sys.argv):
             os.environ["PW_ROOT"] = os.path.abspath(sys.argv[i + 1])
-    root = Path(__file__).resolve().parents[1]
+    root = Path_r()
     if root not in sys.path:
         sys.path.insert(0, str(root))
 
 
+def Path_r():
+    from pathlib import Path
+    return Path(__file__).resolve().parents[1]
+
+
 bootstrap()
 
-from pipeline.helpers import build, common, ingest  # noqa: E402
 
-EMOTIONS = ["calm", "positive", "tense", "excited", "frustrated", "angry"]
-
-
-def head(stream, text) -> None:
-    stream.write(text + "\n")
-    stream.flush()
-
-
-def local_offset(d: dt.datetime) -> str:
-    off = dt.datetime.now().astimezone().utcoffset()
-    total = int(off.total_seconds()) if off else 0
-    sign = "+" if total >= 0 else "-"
-    total = abs(total)
-    return f"{sign}{total // 3600:02d}:{total % 3600 // 60:02d}"
-
-
-def ask(prompt: str, cast=str, default=None, validator=None) -> object:
+# ---------------------------------------------------------------- CLI 工具
+def ask(prompt: str, cast=str, default=None, validator=None):
     while True:
         hint = f" [{default}]" if default is not None else ""
         try:
@@ -100,15 +86,15 @@ def ask_yes(prompt: str, default: bool = False) -> bool:
     return raw.startswith("y")
 
 
-def scene_type_options(schema) -> list:
-    return schema["scene"]["type"]["options"]
+def local_offset(d: dt.datetime) -> str:
+    off = dt.datetime.now().astimezone().utcoffset()
+    total = int(off.total_seconds()) if off else 0
+    sign = "+" if total >= 0 else "-"
+    total = abs(total)
+    return f"{sign}{total // 3600:02d}:{total % 3600 // 60:02d}"
 
 
-def record_type_options(schema) -> list:
-    return schema["record_type"]["options"]
-
-
-# ---------------------------------------------------------------- 录入
+# ---------------------------------------------------------------- CLI 命令
 def cmd_entry(schema) -> int:
     print("\n=== 录入新记忆 ===")
     aliases = common.parse_aliases(common.ALIASES)
@@ -133,8 +119,8 @@ def cmd_entry(schema) -> int:
         created = dt.datetime.now()
     sensitive = ask_yes("是否私密记忆（敏感，不进 git）", default=False)
 
-    scene_type = ask_index("场景类型", scene_type_options(schema))
-    record_type = ask_index("记录类型", record_type_options(schema))
+    scene_type = ask_index("场景类型", schema["scene"]["type"]["options"])
+    record_type = ask_index("记录类型", schema["record_type"]["options"])
     location = input("地点（可选） > ").strip()
     context = ask("场景说明", default="")
     situation = ask("情境 S（客观描述背景）", default="")
@@ -184,21 +170,18 @@ def cmd_entry(schema) -> int:
             print(f"  • {e}")
         return 1
 
-    print("\n校验通过，写入数据…")
-    ingest.ingest(rec, (ref if is_new else None), add_alias=(is_new and not sensitive),
-                  overwrite=False)
-    print()
-    if sensitive:
-        print("私密记忆已入 data/private/，不进 git。")
-        return 0
-    git_commit(schema, rec, ref)
+    ok, msgs = ingest.ingest(rec, (ref if is_new else None), add_alias=(is_new and not sensitive),
+                             overwrite=False)
+    for m in msgs:
+        print(("✓ " if ok else "✗ ") + m)
+    if not ok:
+        return 1
+    if not sensitive and ask_yes("是否现在 git 提交？", default=True):
+        git_commit(rec, ref)
     return 0
 
 
-def git_commit(schema, rec: dict, ref: str) -> None:
-    if not ask_yes("是否现在 git 提交？", default=True):
-        print("  已跳过提交；可稍后手动 git commit（参考上方提交建议）。")
-        return
+def git_commit(rec: dict, ref: str) -> None:
     root = common.ROOT
     brief = rec["scene"].get("context") or rec["record_type"]
     day = rec["created_at"][:10]
@@ -215,7 +198,6 @@ def git_commit(schema, rec: dict, ref: str) -> None:
         print("  未找到 git，跳过提交。")
 
 
-# ---------------------------------------------------------------- 概览 / 重算 / 看板
 def cmd_people() -> int:
     if not common.REGISTER.exists():
         print("register.json 不存在，先重算索引。")
@@ -225,21 +207,23 @@ def cmd_people() -> int:
     print(f"\n人物 {reg.get('total', len(reg['memories']))} 条记忆 / {len(reg['people'])} 人")
     print(f"{'ref':<14} {'假名':<8} {'记忆数':<6} {'最近互动':<12} 关系")
     for p in sorted(reg["people"], key=lambda x: x["ref"]):
-        print(f"{p['ref']:<14} {pseudos.get(p['ref'], ''):<8} {p['memory_count']:<6} {p['last_updated']:<12} {p.get('name', '')}")
+        print(f"{p['ref']:<14} {pseudos.get(p['ref'], ''):<8} {p['memory_count']:<6} "
+              f"{p['last_updated']:<12} {p.get('name', '')}")
     return 0
 
 
 def cmd_reindex() -> int:
-    return ingest.rebuild_register() or 0  # type: ignore[func-returns-value]
+    print(ingest.rebuild_register())
+    return 0
 
 
 def cmd_build(interactive: bool = False) -> int:
-    code = build.main()
-    if code == 0 and interactive:
+    ok, msg = build.build_dashboard()
+    print(msg)
+    if ok and interactive and ask_yes("\n是否用浏览器打开看板？", default=True):
         import webbrowser
-        if ask_yes("\n是否用浏览器打开看板？", default=True):
-            webbrowser.open((common.OUTPUT / "index.html").as_uri())
-    return code
+        webbrowser.open((common.OUTPUT / "index.html").as_uri())
+    return 0 if ok else 2
 
 
 def cmd_analyze() -> int:
@@ -261,36 +245,10 @@ def cmd_analyze() -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    common.setup_stdout_utf8()
-    ap = argparse.ArgumentParser(description="personal-wiki 控制台应用")
-    ap.add_argument("--people", action="store_true", help="人物/记忆概览")
-    ap.add_argument("--reindex", action="store_true", help="重算 register.json")
-    ap.add_argument("--build", action="store_true", help="生成看板")
-    ap.add_argument("--entry", action="store_true", help="录入新记忆")
-    ap.add_argument("--pw-root", help="指定仓库/数据根目录（等价环境变量 PW_ROOT）")
-    args, _ = ap.parse_known_args(argv)
-
-    if not common.DATA.exists() or not (common.ALIASES.exists() or common.REGISTER.exists()):
-        print(f"提示：未在 {common.ROOT} 找到 data/ 数据目录。")
-        print("请将 personal-wiki.exe 放到项目根目录，或用 --pw-root <仓库根目录> 指定。")
-        return 2
-
-    if args.people:
-        return cmd_people()
-    if args.reindex:
-        return cmd_reindex()
-    if args.build:
-        return cmd_build(interactive=False)
-
-    schema = common.load_json(common.SCHEMA)
-
-    if args.entry:
-        return cmd_entry(schema)
-
+def cmd_menu(schema) -> int:
     while True:
         print("\n" + "=" * 42)
-        print("  personal-wiki")
+        print("  personal-wiki（命令行菜单）")
         print(f"  数据根: {common.DATA}")
         print("=" * 42)
         print("  1) 录入新记忆")
@@ -316,6 +274,63 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
 
+def run_cli(args, schema) -> int:
+    if args.people:
+        return cmd_people()
+    if args.reindex:
+        return cmd_reindex()
+    if args.build:
+        return cmd_build(interactive=False)
+    if args.entry:
+        return cmd_entry(schema)
+    if args.menu:
+        return cmd_menu(schema)
+    print("未指定动作；默认启动图形界面，或用 --menu 打开命令行菜单。")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    common.setup_stdout_utf8()
+    ap = argparse.ArgumentParser(description="personal-wiki 个人关系记忆系统")
+    ap.add_argument("--people", action="store_true", help="人物/记忆概览（CLI）")
+    ap.add_argument("--reindex", action="store_true", help="重算 register.json")
+    ap.add_argument("--build", action="store_true", help="生成看板")
+    ap.add_argument("--entry", action="store_true", help="录入新记忆（CLI）")
+    ap.add_argument("--menu", action="store_true", help="命令行交互菜单（CLI）")
+    ap.add_argument("--pw-root", help="指定仓库/数据根目录（等价环境变量 PW_ROOT）")
+    args, _ = ap.parse_known_args(argv)
+
+    if not common.DATA.exists() or not (common.ALIASES.exists() or common.REGISTER.exists()):
+        msg = (f"未在 {common.ROOT} 找到 data/ 数据目录。\n"
+               "请将程序放到项目根目录，或用 --pw-root <仓库根目录> 指定。")
+        if getattr(sys, "frozen", False):
+            from PySide6.QtWidgets import QApplication, QMessageBox
+            app = QApplication.instance() or QApplication(sys.argv)
+            QMessageBox.warning(None, "personal-wiki", msg)
+            return 2
+        print(msg)
+        return 2
+
+    schema = common.load_json(common.SCHEMA)
+
+    # 源码 + 显式 CLI 参数 → 传统命令行；否则一律 GUI
+    use_cli = (not getattr(sys, "frozen", False)) and \
+              (args.people or args.reindex or args.build or args.entry or args.menu)
+    if use_cli:
+        return run_cli(args, schema)
+
+    from app.gui.main_window import launch
+    action = None
+    start = "overview"
+    if args.reindex:
+        action, start = "reindex", "index"
+    elif args.build:
+        action, start = "build", "dashboard"
+    elif args.entry:
+        start = "entry"
+    return launch(start_tab=start, action=action)
+
+
 if __name__ == "__main__":
     try:
         sys.exit(main())
@@ -324,7 +339,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n已中止。")
         sys.exit(130)
-    except Exception as e:
-        print(f"出错：{e}")
-        print("可将以上完整信息反馈，或检查数据文件是否被其他程序占用。")
+    except Exception as e:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
         sys.exit(1)

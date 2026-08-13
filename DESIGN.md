@@ -21,7 +21,7 @@
 ### 1.3 角色分工
 | 层 | 承担者 | 职责 |
 |---|---|---|
-| 输入层 | 用户本人 + 控制台 exe（`personal-wiki.exe`） | 交互问答录入、校验、落盘、重算索引、生成看板，输入输出全部在 exe 内完成 |
+| 输入层 | 用户本人 + 桌面 GUI（`personal-wiki.exe`，PySide6） | 界面化录入、校验、落盘、重算索引、生成并打开看板，五页签输入/展示 |
 | Agent 层 | opencode | 读记忆文件，产出人物档案与分析结论 |
 | 展示层 | 生成式静态看板 | 数据可视化，浏览人物画像 |
 
@@ -34,9 +34,9 @@
 ```
 ┌─────────────┐      ┌────────────────────┐
 │  输入层       │      │  摄入/数据层         │
-│  控制台 exe   │─────▶│  校验 → 落盘        │
-│  交互问答录入  │      │  归一化 → 重算 register│
-│  (app/main.py)│      │  (app 内联调用       │
+│  桌面 GUI exe │─────▶│  校验 → 落盘        │
+│  五页签界面    │      │  归一化 → 重算 register│
+│  (app/  PySide6)│    │  (app 内联调用       │
 └─────────────┘      │   ingest.py 逻辑)    │
                     └─────────┬────────────┘
                               ▼
@@ -88,8 +88,18 @@ personal-wiki/
 │   ├── form-schema.json            # 表单字段的 schema（校验/生成用，exe 也读它）
 │   └── README.md                   # 录入使用说明
 │
-├── app/                            # 控制台应用源码（主入口）
-│   └── main.py                     # 打包为 personal-wiki.exe（录入/概览/重算/看板/分析提示）
+├── app/                            # 应用包（主入口，打包为 personal-wiki.exe）
+│   ├── main.py                     # 入口：默认启动桌面 GUI；源码下带参数走 CLI
+│   ├── gui/                        # PySide6 界面（概览/录入/索引/看板/分析）
+│   │   ├── main_window.py          # 主窗口装配（页签、状态栏、隐私菜单）
+│   │   ├── record_tab.py           # 录入表单（复用 form-schema.json 与 ingest 校验）
+│   │   ├── overview_tab.py         # 概览：统计卡 + 人物表格 + 档案查看
+│   │   ├── index_tab.py            # 索引：register 状态/月度/私密，重算与定位
+│   │   ├── dashboard_tab.py        # 看板：生成/打开
+│   │   ├── analyze_tab.py          # 分析：opencode 指令 + 待跟进清单
+│   │   ├── widgets.py / style.py   # 通用控件 / QSS 样式
+│   │   └── assets.py               # 字体/图标加载（打包路径兼容）
+│   └── assets/                     # 联网获取并打包的素材（Tabler 图标、Inter/Noto Sans SC）
 │
 ├── dashboard/                      # 展示层源码与生成物
 │   ├── templates/                  # 页面模板
@@ -248,21 +258,22 @@ lisi     → 李工
 
 ## 5. 输入层设计（规范化、专业化录入）
 
-### 5.1 主入口：控制台 exe（app/main.py → personal-wiki.exe）
+### 5.1 主入口：桌面 GUI（app/main.py → personal-wiki.exe）
 
-双击或在命令行使 `personal-wiki.exe`，进入菜单，输入输出都在 exe 内完成：
+双击运行打开 PySide6 窗口，五个页签完成全部输入与展示（数据逻辑复用 5.5 的 ingest 函数）：
 
-| 菜单 | 说明 |
-|---|---|
-| 1 录入新记忆 | 交互问答（与下方四区块同字段）→ 校验 → 落盘 → 重算 register → 可选 git 提交 |
-| 2 人物/记忆概览 | 从 register 列出所有人物的记忆数与最近互动 |
-| 3 重算索引 register | 等价 `ingest.py --reindex` |
-| 4 生成看板 | 等价 `build.py`，产出 dashboard/output/，可一键打开 |
-| 5 生成分析提示 | 打印"分析 <ref>"指令，交由 opencode 执行（任务书 analyze.md） |
+| 页签 | 输入/展示 | 落盘行为 |
+|---|---|---|
+| 概览 | 人物统计卡 + 人物表格（假名/ref/关系/记忆数/最近互动/档案），双击看档案 | 只读 |
+| 录入 | 四区块表单（基础信息 / STAR / 人物观察 / 评价与后续）| 校验 → 落盘 → 重算 register → 可选 git 提交 |
+| 索引 | register 状态、月度分布、私密记忆数 | 「重算」= `ingest.rebuild_register()` |
+| 看板 | 生成/打开静态看板 | 写 dashboard/output/ |
+| 分析 | 生成「分析 <ref>」opencode 指令并复制；待跟进清单 | 只读 |
 
-- 命令行亦可直接调用：`personal-wiki.exe --people / --reindex / --build / --entry`；
 - 数据根目录定位：exe 所在目录为仓库根；也可 `--pw-root <路径>` 或环境变量 `PW_ROOT` 指定；
-- 新人物录入时引导登记 ref 与展示用假名；私密记忆（sensitive=true）直接落 `data/private/`（见 5.5）。
+- 新人物录入时引导登记 ref 与展示用假名；私密记忆（sensitive=true）直接落 `data/private/`（见 5.5）；
+- 界面素材（图标 Tabler、字体 Inter / Noto Sans SC）从网络获取并本地打包，离线可用，见 `app/assets/README.md`；
+- CLI 功能保留：源码下 `python app/main.py --people/--reindex/--build/--entry/--menu`；exe 内带这些参数会启动 GUI 并自动定位/执行。
 
 ### 5.2 字段（exe 问答 与 HTML 表单同构）
 

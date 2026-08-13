@@ -3,7 +3,7 @@
 个人人际关系记忆与人格分析系统 —— 以「文件即数据库、opencode 即 Agent、静态页即看板」为原则的极简落地项目。
 
 - 设计文档：见 [DESIGN.md](DESIGN.md)
-- 当前阶段：**P0 骨架**（控制台 exe + 摄入/看板脚本 + 数据骨架已可用）
+- 当前阶段：**P0 骨架 + 桌面 GUI**（`personal-wiki.exe` 提供完整界面化输入与展示）
 
 ## 目录结构
 
@@ -14,10 +14,13 @@ data/            ★ 数据唯一事实源（入库）
   memories/        原始记忆 JSON（摄入层落盘）
   private/         私密记忆（gitignore，永不入库）
   meta/            register.json（生成物）、pseudonyms.md（展示脱敏）
-app/              控制台应用源码 → 打包 personal-wiki.exe（日常主入口）
+app/              应用包（源码 → 打包 personal-wiki.exe）
+  main.py          入口：默认启动桌面 GUI；源码下带参数走 CLI
+  gui/             PySide6 界面（概览 / 录入 / 索引 / 看板 / 分析 五页签）
+  assets/          打包素材：Tabler 图标 + Inter / Noto Sans SC 字体（见其 README）
 input/            HTML 录入表单（可选辅助，纯前端生成器，不写盘）
   index.html       浏览器打开 → 填写 → 下载记忆 JSON
-  form-schema.json 字段 schema（驱动表单与校验）
+  form-schema.json 字段 schema（驱动表单、GUI 录入与校验）
 pipeline/        Agent 工作区 + 脚本
   helpers/          common.py（路径/别名/编码）ingest.py（摄入）build.py（看板）
 dashboard/       展示层（P2 进行中）
@@ -27,23 +30,34 @@ docs/            使用手册（P4）、分析维度说明（P1）
 ## 快速开始
 
 ### 1. 环境
-- Windows：直接用 `personal-wiki.exe`（源码位于 `app/main.py`，可自行重新打包）
-- 源码方式：Python 3（建议 ≥3.9）+ Jinja2：`pip install jinja2`；可选 pypinyin（`pip install pypinyin`）
+- Windows：双击 `personal-wiki.exe`（PySide6 桌面界面，57MB 左右，离线可用）
+- 源码方式：`pip install PySide6 jinja2`（可选 `pypinyin`）
 - ECharts 已 vendor 到 `dashboard/assets/echarts.min.js`（本地离线可用）
 
-### 2. 日常录入（exe 主入口）
-双击（或命令行）运行 `personal-wiki.exe`，菜单交互：
+### 2. 日常使用（GUI 主入口）
+双击运行后弹出窗口，五个页签：
 
+| 页签 | 功能 |
+|---|---|
+| 概览 | 人物/记忆统计卡 + 人物表格（假名/ref/关系/记忆数/最近互动/档案），双击看档案 |
+| 录入 | 四区块表单（基础信息 / STAR / 人物观察 / 评价与后续）→ 校验 → 落盘 → 重算索引 → 可选 git 提交 |
+| 索引 | register 状态、月度分布、私密记忆数；重算 register、打开数据目录 |
+| 看板 | 生成 / 重新生成静态看板，一键在浏览器打开 |
+| 分析 | 生成「分析 <ref>」opencode 指令并复制；待跟进事项清单 |
+
+> 私密记忆：录入页勾选「敏感/私密」→ 仅落盘 `data/private/`，**永不进 git、register、分析与看板**。
+
+### 3. 命令行（源码模式）
 ```
-1 录入新记忆    2 人物/记忆概览   3 重算索引
-4 生成看板      5 生成分析提示    q 退出
+python app/main.py --menu              # 传统交互菜单
+python app/main.py --people            # 人物概览
+python app/main.py --reindex           # 重算 register.json
+python app/main.py --build             # 生成看板
+python app/main.py --pw-root D:\path   # 指定数据根目录（等价环境变量 PW_ROOT）
 ```
+exe 内带 `--reindex / --build / --entry / --people` 时仍启动 GUI，并自动定位到对应页 / 执行动作。
 
-- 录入 → 校验 → 落盘 → 重算 register → 可确认后自动 git 提交（提交信息只用 ref）；
-- 命令行：`personal-wiki.exe --people`（概览）/ `--reindex` / `--build` / `--entry`；
-- 若 exe 不在仓库根目录：加 `--pw-root <仓库路径>` 或环境变量 `PW_ROOT` 指定数据根。
-
-### 3. 可选：HTML 表单录入
+### 4. HTML 表单（可选辅助）
 浏览器打开 `input/index.html` → 填写 → 下载 `.json`，然后交给 exe/脚本摄入：
    ```
    python pipeline/helpers/ingest.py <下载的.json>
@@ -51,19 +65,18 @@ docs/            使用手册（P4）、分析维度说明（P1）
    python pipeline/helpers/ingest.py --ref wangwu --add-alias <下载的.json>
    ```
 
-> 私密记忆：录入时选择「私密」，落盘 `data/private/`，**永不进 git、register、分析与看板**。
-
-### 4. 源码维护命令
+### 5. 源码维护命令
 ```
 python pipeline/helpers/ingest.py --reindex        # 重算 register.json（改档案后调用）
 python pipeline/helpers/ingest.py --validate <f>   # 只校验不落盘
 python pipeline/helpers/build.py                   # 生成看板
 ```
 
-### 5. 重新打包 exe
+### 6. 重新打包 exe
 ```
-pip install pyinstaller
-pyinstaller --onefile --console --name personal-wiki --paths . app/main.py
+pip install pyinstaller PySide6
+pyinstaller --noconfirm --windowed --onefile --name personal-wiki --paths . `
+  --add-data "app\assets;app\assets" app\main.py
 copy dist\personal-wiki.exe .     # 放到仓库根目录即可使用
 ```
 

@@ -222,12 +222,10 @@ def emotion_of(rec: dict) -> str:
     return rec.get("observation", {}).get("emotion", "calm")
 
 
-def main() -> int:
-    setup_stdout_utf8()
-
+def build_dashboard() -> tuple[bool, str]:
+    """生成静态看板 dashboard/output/。返回 (是否成功, 结果消息)。"""
     if not REGISTER.exists():
-        print("register.json 不存在，请先运行 python pipeline/helpers/ingest.py --reindex")
-        return 2
+        return False, "register.json 不存在，请先在「索引」页重算"
 
     register = load_json(REGISTER)
 
@@ -296,9 +294,16 @@ def main() -> int:
 
     out_index = OUTPUT / "index.html"
     out_index.write_text(out_html, encoding="utf-8")
-    print(f"✓ 看板已生成: {out_index}")
-    print(f"  人物 {kpis['people_total']} / 记忆 {kpis['memories_total']} / 本月新增 {kpis['month_new']} / 待跟进 {kpis['followups']}")
-    return 0
+    return True, (f"看板已生成: {out_index}\n"
+                  f"  人物 {kpis['people_total']} / 记忆 {kpis['memories_total']}"
+                  f" / 本月新增 {kpis['month_new']} / 待跟进 {kpis['followups']}")
+
+
+def main() -> int:
+    setup_stdout_utf8()
+    ok, msg = build_dashboard()
+    print(msg)
+    return 0 if ok else 2
 
 
 if __name__ == "__main__":

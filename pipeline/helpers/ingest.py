@@ -27,12 +27,12 @@ import sys
 from pathlib import Path
 
 if __package__:
-    from .common import (ALIASES, MEMORIES, PRIVATE, PSEUDONYMS, REGISTER,
+    from .common import (ALIASES, MEMORIES, PEOPLE, PRIVATE, PSEUDONYMS, REGISTER,
                          ROOT, SCHEMA, append_line, infer_ref, load_json,
                          parse_aliases, parse_pseudonyms, setup_stdout_utf8,
                          write_json_smart)
 else:
-    from common import (ALIASES, MEMORIES, PRIVATE, PSEUDONYMS, REGISTER,
+    from common import (ALIASES, MEMORIES, PEOPLE, PRIVATE, PSEUDONYMS, REGISTER,
                         ROOT, SCHEMA, append_line, infer_ref, load_json,
                         parse_aliases, parse_pseudonyms, setup_stdout_utf8,
                         write_json_smart)
@@ -125,7 +125,8 @@ def _scan_json_records(root: Path) -> list[dict]:
     return recs
 
 
-def rebuild_register() -> None:
+def rebuild_register() -> str:
+    """按 data/memories/ 重算 register.json（生成物）。返回结果摘要文本。"""
     recs = _scan_json_records(MEMORIES)
     recs.sort(key=lambda r: r.get("created_at", ""))
 
@@ -162,83 +163,143 @@ def rebuild_register() -> None:
     }
     REGISTER.parent.mkdir(parents=True, exist_ok=True)
     write_json_smart(REGISTER, register)
-    print(f"  register.json 已重算: {len(memories)} 条记忆 / {len(people)} 人（m1~m{len(memories)}）")
+    return f"register.json 已重算: {len(memories)} 条记忆 / {len(people)} 人（m1~m{len(memories)}）"
+
+
+def register_summary() -> dict:
+    """汇总 register + 记忆文件，供 GUI 概览 / 索引展示。"""
+    if not REGISTER.exists():
+        return {"ok": False, "msg": "register.json 不存在，请先「重算索引」", "rows": [],
+                "total": 0, "people_count": 0, "month_new": 0, "followups": 0,
+                "private_count": 0, "months": {}}
+    reg = load_json(REGISTER)
+    pseudos = parse_pseudonyms(PSEUDONYMS)
+    this_month = dt.date.today().strftime("%Y-%m")
+    months: dict[str, int] = {}
+    by_ref: dict[str, dict] = {}
+    month_new = followups = 0
+    for m in reg.get("memories", []):
+        ym = m["date"][:7].replace("-", "/")
+        path = MEMORIES / ym / (m["id"] + ".json")
+        if not path.exists():
+            continue
+        rec = load_json(path)
+        months[m["date"][:7]] = months.get(m["date"][:7], 0) + 1
+        if m["date"][:7] == this_month:
+            month_new += 1
+        if rec.get("follow_up"):
+            followups += 1
+        agg = by_ref.setdefault(m["ref"], {
+            "ref": m["ref"], "name": rec.get("person", {}).get("name", m["ref"]),
+            "relation": "", "count": 0, "last": ""})
+        agg["count"] += 1
+        if m["date"] > agg["last"]:
+            agg["last"] = m["date"]
+        if not agg["relation"]:
+            agg["relation"] = rec.get("person", {}).get("relation", "")
+    rows = []
+    for p in sorted(by_ref.values(), key=lambda x: x["ref"]):
+        row = {**p, "pseudonym": pseudos.get(p["ref"], "")}
+        row["has_profile"] = (PEOPLE / (p["ref"] + ".md")).exists()
+        rows.append(row)
+    private_count = sum(1 for _ in PRIVATE.rglob("*.json")) if PRIVATE.exists() else 0
+    return {"ok": True, "rows": rows, "total": reg.get("total", 0),
+            "people_count": len(rows), "month_new": month_new, "followups": followups,
+            "private_count": private_count, "months": dict(sorted(months.items()))}
+
+
+def followups_list() -> list[dict]:
+    """扫描记忆中的待跟进事项，返回按日期倒序列表（供 GUI 分析页展示）。"""
+    items: list[dict] = []
+    if not REGISTER.exists():
+        return items
+    reg = load_json(REGISTER)
+    pseudos = parse_pseudonyms(PSEUDONYMS)
+    for m in reg.get("memories", []):
+        ym = m["date"][:7].replace("-", "/")
+        path = MEMORIES / ym / (m["id"] + ".json")
+        if not path.exists():
+            continue
+        rec = load_json(path)
+        fu = rec.get("follow_up")
+        if fu:
+            items.append({"ref": m["ref"], "pseudonym": pseudos.get(m["ref"], m["ref"]),
+                          "date": m["date"], "text": fu, "id": m["id"]})
+    items.sort(key=lambda x: x["date"], reverse=True)
+    return items
 
 
 # ---------------------------------------------------------------- 摄入
-def ingest(rec: dict, ref_override: str | None, add_alias: bool, overwrite: bool):
-    aliases = parse_aliases(ALIASES)
-    name = rec["person"]["name"].strip()
-    ref = ref_override or aliases.get(name) or (name.strip() if infer_ref(name) else None)
+class IngestError(Exception):
+    """摄入失败（信息性），消息可直接展示给用户。"""
 
-    if not ref:
-        ref = "pending"
-        print(f"  ! 无法推断 ref（缺少 pypinyin，也未在 aliases.md）：暂时用 'pending'，"
-              f"请用 --ref <ref> 指定并将其写入 aliases.md")
-        sys.exit(2)
 
-    if ref == "pending":
-        print(f"  ! 新人物「{name}」尚未归一化，ref = pending，请用 --ref 或经 opencode 判断后重跑")
-        sys.exit(2)
-
-    ref = ref_override or aliases.get(name) or ref
-
-    # 填 ref / id
-    rec["person"]["ref"] = ref
-    staple = re.match(r"^(\d{8}-H\d{4})", rec["id"])
-    if not staple:
-        print(f"  ! id 格式非法: {rec['id']!r}")
-        sys.exit(2)
-    staple = staple.group(1)
-    rec["id"] = staple + "-" + ref + ("-PRIVATE" if rec["sensitive"] else "")
-
-    # 落盘目录
+def ingest(rec: dict, ref_override: str | None = None, add_alias: bool = False,
+           overwrite: bool = False) -> tuple[bool, list[str]]:
+    """摄入一条记忆：校验由调用方完成。返回 (是否成功, 结果消息列表)。"""
+    msgs: list[str] = []
     try:
-        created = dt.datetime.fromisoformat(rec["created_at"])
-    except ValueError:
-        print("  ! created_at 格式非法")
-        sys.exit(2)
-    base = PRIVATE if rec["sensitive"] else MEMORIES
-    target_dir = base / f"{created.year:04d}" / f"{created.month:02d}"
-    filename = staple + "-" + ref + ("-PRIVATE" if rec["sensitive"] else "") + ".json"
-    target = target_dir / filename
+        aliases = parse_aliases(ALIASES)
+        name = rec["person"]["name"].strip()
+        ref = (ref_override or "").strip() or aliases.get(name) or infer_ref(name)
+        if not ref:
+            raise IngestError("无法推断 ref（未装 pypinyin 且未在 aliases.md），请手动填写 ref")
+        ref = ref.lower()
 
-    if target.exists() and not overwrite:
-        print(f"  ✗ 目标已存在: {target}（用 --overwrite 覆盖）")
-        sys.exit(2)
+        rec["person"]["ref"] = ref
+        m0 = re.match(r"^(\d{8}-H\d{4})", rec["id"])
+        if not m0:
+            raise IngestError(f"id 格式非法: {rec['id']!r}")
+        staple = m0.group(1)
+        rec["id"] = staple + "-" + ref + ("-PRIVATE" if rec["sensitive"] else "")
 
-    target_dir.mkdir(parents=True, exist_ok=True)
-    write_json_smart(target, rec)
+        try:
+            created = dt.datetime.fromisoformat(rec["created_at"])
+        except ValueError:
+            raise IngestError("created_at 格式非法")
 
-    # 别名/假名登记（新人物；私密记忆一律不写 git 内文件，保持隐私）
-    if add_alias and not rec["sensitive"] and name not in aliases:
-        append_line(ALIASES, f"{name} → {ref}\n")
-        print(f"  + aliases.md 已追加: {name} → {ref}")
-    pseudo = rec.get("person", {}).get("pseudonym", "")
-    if pseudo and not rec["sensitive"] and ref not in parse_pseudonyms(PSEUDONYMS):
-        append_line(PSEUDONYMS, f"{ref} → {pseudo}\n")
-        print(f"  + pseudonyms.md 已追加: {ref} → {pseudo}")
+        base = PRIVATE if rec["sensitive"] else MEMORIES
+        target_dir = base / f"{created.year:04d}" / f"{created.month:02d}"
+        filename = staple + "-" + ref + ("-PRIVATE" if rec["sensitive"] else "") + ".json"
+        target = target_dir / filename
+        if target.exists() and not overwrite:
+            raise IngestError(f"目标已存在: {target.relative_to(ROOT)}（请勿重复提交）")
 
-    kind = "PRIVATE" if rec["sensitive"] else "memories"
-    print(f"  ✓ 已落盘 [{kind}] {target.relative_to(ROOT)}")
-    rebuild_register()
-    print_suggest(target, rec)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        write_json_smart(target, rec)
+        kind = "PRIVATE" if rec["sensitive"] else "memories"
+        msgs.append(f"已落盘 [{kind}] {target.relative_to(ROOT)}")
+
+        # 别名/假名登记（新人物；私密记忆一律不写 git 内文件，保持隐私）
+        if add_alias and not rec["sensitive"] and name not in aliases:
+            append_line(ALIASES, f"{name} → {ref}\n")
+            msgs.append(f"aliases.md 已追加: {name} → {ref}")
+        pseudo = rec.get("person", {}).get("pseudonym", "")
+        if pseudo and not rec["sensitive"] and ref not in parse_pseudonyms(PSEUDONYMS):
+            append_line(PSEUDONYMS, f"{ref} → {pseudo}\n")
+            msgs.append(f"pseudonyms.md 已追加: {ref} → {pseudo}")
+
+        msgs.append(rebuild_register())
+        suggest = build_suggest(target, rec)
+        if suggest:
+            msgs.append(suggest)
+        return True, msgs
+    except IngestError as e:
+        return False, [str(e)]
 
 
-def print_suggest(target: Path, rec: dict) -> None:
+def build_suggest(target: Path, rec: dict) -> str:
+    """生成 git 提交建议文本（私密记忆返回空串）。"""
     if rec["sensitive"]:
-        print("\n[私密记忆] 已落盘 data/private/（gitignore），不进 git、register、分析与看板，无需提交。")
-        return
+        return ""
     ref = rec["person"]["ref"]
     day = rec["created_at"][:10]
     brief = rec["scene"].get("context", "") or rec["record_type"]
-    adds = ['data/memories/', 'data/meta/register.json']
-    if rec.get("person", {}).get("pseudonym"):
-        adds.append('data/meta/pseudonyms.md')
-    print("\n[提交建议]（供用户确认后执行，勿自动 commit）")
-    print(f'  git add ' + " ".join(f'"{a}"' for a in adds) + f' "{target}"')
-    print(f'  git commit -m "mem: 录入 {ref} {day} {brief}"')
-    print("\n  注意：提交信息只用 ref；aliases.md 若有改动请一起 add。")
+    rel = target.relative_to(ROOT)
+    return ("提交建议：\n"
+            f'  git add data/memories/ data/meta/register.json "{rel}"\n'
+            f'  git commit -m "mem: 录入 {ref} {day} {brief}"\n'
+            f"  注意：提交信息只用 ref；提交前请 git status 核对，私密文件绝不加入。")
 
 
 # ---------------------------------------------------------------- 入口
@@ -254,7 +315,7 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.reindex:
-        rebuild_register()
+        print(rebuild_register())
         return 0
 
     if not args.files:
@@ -278,7 +339,11 @@ def main() -> int:
         print(f"✓ 校验通过: {path.name}")
         if args.validate:
             continue
-        ingest(rec, args.ref, args.add_alias, args.overwrite)
+        ok, msgs = ingest(rec, args.ref, args.add_alias, args.overwrite)
+        for m in msgs:
+            print(("✓ " if ok else "✗ ") + m)
+        if not ok:
+            return 2
 
     return 0
 
